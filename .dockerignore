@@ -1,2 +1,5 @@
-src
-*.log
+# Exclude everything
+**
+
+# Keep Dockerfile, which is used to build cloud-dev image
+!Dockerfile
