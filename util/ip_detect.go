@@ -69,6 +69,16 @@ func isPrivate(ip net.IP) bool {
 	return false
 }
 
+// DetectAddress picks the appropriate IP detection method based on `detector`.
+func DetectAddress(detector string, addrType AddressType, ifaceNames []string) (string, error) {
+	switch detector {
+	case "iface":
+		return DetectByInterface(addrType, ifaceNames)
+	default:
+		return "", fmt.Errorf("detector %q is not supported", detector)
+	}
+}
+
 // DetectByInterface finds the most-likely public IP address as a string, by
 // inspecting addresses assigned to OS network interfaces. If ifaceNames are
 // not empty, it will filter ip addresses based on the associated interface
