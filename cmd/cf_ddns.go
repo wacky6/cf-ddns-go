@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/miekg/dns"
 
 	"../ddns"
 	"../util"
@@ -22,7 +24,8 @@ var opts struct {
 	Iface6    []string      `          long:"iface6" description:"Interfaces to check for IPv6" default:"" value-name:"<interface_name>" default-mask:"all-interfaces"`
 	Interval6 time.Duration `          long:"interval6" description:"Time between consecutive IPv4 address checks" value-name:"<duration>" default:"20s"`
 
-	OneShot bool `short:"D" long:"one-shot" description:"Detect and set DNS record once, don't enter daemon mode"`
+	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"1.1.1.1" value-name:"<dns_resolver>"`
+	OneShot   bool     `short:"D" long:"one-shot" description:"Detect and set DNS record once, don't enter daemon mode"`
 }
 
 func main() {
@@ -31,77 +34,138 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(opts.Addr6) > 0 {
-		err = run(func(provider ddns.Provider, lastAddr string) (string, error) {
-			return runIPv6(provider, opts.Addr6, opts.Mode6, opts.Iface6, lastAddr)
-		}, opts.Interval6)
-	}
-}
-
-func daemonize(fn func() error, interval time.Duration) {
-	for {
-		fn()
-		time.Sleep(interval)
-	}
-}
-
-func run(
-	runFn func(provider ddns.Provider, lastAddr string) (string, error),
-	interval time.Duration) error {
-
 	provider, err := ddns.CreateCloudFlareProvider()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "can't initialize ddns provider: %v\n", err)
-		return err
+		os.Exit(1)
 	}
 
-	if opts.OneShot {
-		addr, err := runFn(provider, "")
-		if err != nil {
-			fmt.Fprintf(os.Stdout, "FAIL\n")
-			fmt.Fprintf(os.Stderr, "failed to update ddns: %v\n", err)
-			return err
-		}
-
-		fmt.Fprintf(os.Stdout, "OK %v\n", addr)
-		return nil
-	}
-
-	// Run as daemon.
 	err = provider.VerifyConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "can't start as daemon: %v\n", err)
-		return err
+		fmt.Fprintf(os.Stderr, "can't verify ddns provider config: %v\n", err)
+		os.Exit(1)
 	}
 
-	var lastAddr string
-	daemonize(func() error {
-		addr, err := runFn(provider, lastAddr)
-		lastAddr = addr
-		return err
-	}, interval)
-	return nil
+	if len(opts.Addr6) > 0 {
+		detectFn := func() string {
+			result, err := util.DetectAddress(opts.Mode6, util.IP6, opts.Iface6)
+			if err != nil {
+				return ""
+			}
+			return result
+		}
+		resolveFn := getResolveFn(opts.DNSServer, util.IP6, opts.Addr6)
+		updateFn := func(addr string) error {
+			return provider.SetRecord(opts.Addr6, ddns.Record{Type: "AAAA", Content: addr})
+		}
+
+		var updateInterval time.Duration
+		if opts.OneShot {
+			updateInterval = 0 * time.Second
+		} else {
+			updateInterval = opts.Interval6
+		}
+
+		result, err := ddnsLoop("ipv6", resolveFn, detectFn, updateFn, updateInterval)
+		if opts.OneShot {
+			if err != nil {
+				fmt.Fprintf(os.Stdout, "FAIL ipv6 <unknown>\n")
+			} else {
+				fmt.Fprintf(os.Stdout, "OK ipv6 %v\n", result)
+			}
+		}
+	}
 }
 
-// runIPv6 returns the ip address set to the DNS record.
-func runIPv6(provider ddns.Provider, fqdn string, mode string, ifaces []string, currentAddr string) (string, error) {
-	addr, err := util.DetectAddress(mode, util.IP6, ifaces)
-	if err != nil {
-		return "", err
+// fillEmpty returns "<empty>" if the provided string is empty
+func fillEmpty(str string) string {
+	if len(str) == 0 {
+		return "<empty>"
 	}
 
-	if len(addr) == 0 {
-		return "", fmt.Errorf("no public ipv6 address found")
+	return str
+}
+
+// getResolveFn returns a DNS resolve function. If dnsServerSpec is non-empty, it queries the provied servers.
+// Otherwise it returns a function to use operating system's DNS resolver.
+func getResolveFn(dnsServerSpec []string, addrType util.AddressType, fqdn string) func() string {
+	var dnsRecordType uint16
+	switch addrType {
+	case util.IP4:
+		dnsRecordType = dns.TypeA
+	case util.IP6:
+		dnsRecordType = dns.TypeAAAA
+	default:
+		log.Fatalf("invalid address type: %v\n", addrType)
+		return func() string { return "" }
 	}
 
-	if currentAddr == addr {
-		return addr, nil
+	// Use provided DNS server.
+	if len(dnsServerSpec) > 0 {
+		return func() string { return util.Resolve(dnsServerSpec, dnsRecordType, fqdn) }
 	}
 
-	err = provider.SetRecord(fqdn, ddns.Record{Type: "AAAA", Content: addr})
-	if err != nil {
-		return "", err
-	}
+	// Use OS DNS resolver.
+	return func() string { return util.ResolveOs(dnsRecordType, fqdn) }
+}
 
-	return addr, nil
+// ddnsLoop executes the DDNS resolve-detect-update loop. Returns the updated ip address.
+func ddnsLoop(
+	logPrefix string,
+	resolveFn func() string, // resolveFn returns the resolved DNS record for `fqdn`
+	detectFn func() string, // detectFn returns the detected ip address
+	updateFn func(addr string) error, // updateFn upadtes the record to addr, and returns the error
+	interval time.Duration, // interval between two consecutive checks, `0` means running as one-shot
+) (string, error) {
+	var oneShot bool = interval == 0*time.Second
+
+	for firstRun := true; ; firstRun = false {
+		chanResolve := make(chan string)
+		chanDetect := make(chan string)
+
+		go func() { chanResolve <- resolveFn() }()
+		go func() { chanDetect <- detectFn() }()
+
+		resolved := <-chanResolve
+		detected := <-chanDetect
+
+		if len(detected) == 0 {
+			if oneShot {
+				return "", fmt.Errorf("failed to detect ip address")
+			}
+			if firstRun {
+				fmt.Fprintf(os.Stderr, "%v failed to detect address\n", logPrefix)
+			}
+			time.Sleep(interval)
+			continue
+		}
+
+		if resolved != detected {
+			err := updateFn(detected)
+			if err != nil {
+				if oneShot {
+					return "", fmt.Errorf("failed to update record: %w", err)
+				}
+				if firstRun {
+					fmt.Fprintf(os.Stderr, "%v failed to update record\n", logPrefix)
+				}
+				time.Sleep(interval)
+				continue
+			}
+		}
+
+		if oneShot {
+			return detected, nil
+		}
+
+		if firstRun {
+			if resolved == detected {
+				fmt.Fprintf(os.Stderr, "%v up-to-date %v\n", logPrefix, detected)
+			} else {
+				fmt.Fprintf(os.Stderr, "%v updated %v\n", logPrefix, detected)
+			}
+		}
+
+		time.Sleep(interval)
+	}
 }

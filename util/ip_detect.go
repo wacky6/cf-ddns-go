@@ -6,25 +6,6 @@ import (
 	"sort"
 )
 
-// AddressType denotes the type of IP address.
-type AddressType int
-
-const (
-	// IP4 represents IPv4 address.
-	IP4 AddressType = iota
-	// IP6 represents IPv6 address.
-	IP6 AddressType = iota
-)
-
-// getAddressFamily returns the AddressType of the given IP.
-func getAddressType(ipAddr net.IP) AddressType {
-	if ipAddr.To4() != nil {
-		return IP4
-	}
-
-	return IP6
-}
-
 var privateCidrs = []*net.IPNet{
 	cidr("10.0.0.0/8"),     // RFC 1918 IPv4 private network address
 	cidr("100.64.0.0/10"),  // RFC 6598 IPv4 carrier NAT address
@@ -111,7 +92,7 @@ func DetectByInterface(addrType AddressType, ifaceNames []string) (string, error
 				panic(fmt.Sprintf("Can't parse interface address"))
 			}
 
-			if getAddressType(ip) != addrType {
+			if GetAddressType(ip) != addrType {
 				// Skip if address type doesn't match.
 				continue
 			}
