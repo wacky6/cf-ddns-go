@@ -24,7 +24,7 @@ var opts struct {
 	Iface6    []string      `          long:"iface6" description:"Interfaces to check for IPv6" default:"" value-name:"<interface_name>" default-mask:"all-interfaces"`
 	Interval6 time.Duration `          long:"interval6" description:"Time between consecutive IPv4 address checks" value-name:"<duration>" default:"20s"`
 
-	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"1.1.1.1" value-name:"<dns_resolver>"`
+	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"default" value-name:"<dns_resolver>" default-mask:"CF & Google DNS"`
 	OneShot   bool     `short:"D" long:"one-shot" description:"Detect and set DNS record once, don't enter daemon mode"`
 }
 
@@ -32,6 +32,22 @@ func main() {
 	_, err := flags.Parse(&opts)
 	if err != nil {
 		os.Exit(1)
+	}
+
+	if len(opts.DNSServer) == 1 && opts.DNSServer[0] == "default" {
+		opts.DNSServer = []string{
+			// Cloudflare DNS
+			"1.1.1.1",
+			"1.0.0.1",
+			"2606:4700:4700::1111",
+			"2606:4700:4700::1001",
+
+			// Google public DNS
+			"8.8.8.8",
+			"8.8.4.4",
+			"2001:4860:4860::8888",
+			"2001:4860:4860::8844",
+		}
 	}
 
 	provider, err := ddns.CreateCloudFlareProvider()
@@ -117,27 +133,40 @@ func ddnsLoop(
 	updateFn func(addr string) error, // updateFn upadtes the record to addr, and returns the error
 	interval time.Duration, // interval between two consecutive checks, `0` means running as one-shot
 ) (string, error) {
-	var oneShot bool = interval == 0*time.Second
+	var oneShot bool = interval == 0*time.Second // Whether running as a one-shot function call.
 
-	// Status update helpers.
-	const statusUpToDateDuration = 1 * time.Hour
-	var lastStatusTime time.Time
+	const DNSQueryTTL = 10 * time.Minute // The amount of time to wait, before querying a real DNS server after a valid response
+	var lastDNSQueryTime time.Time       // Last time that we query a DNS server
+	var lastResolvedAddress string       // Last address that is resolved by DNS server, or sent to DNS provider
+
+	const statusTTL = 1 * time.Hour // The amount of time to wait, before refreshing the status message (log)
+	var lastStatusTime time.Time    // Last time that we shown a status message
+
+	// A helper function to display status messages.
 	printStatusF := func(formatStr string, args ...interface{}) {
-		if lastStatusTime.Add(statusUpToDateDuration).Before(time.Now()) {
+		if lastStatusTime.Add(statusTTL).Before(time.Now()) {
 			fmt.Fprintf(os.Stderr, formatStr, args...)
 			lastStatusTime = time.Now()
 		}
 	}
 
 	for {
-		chanResolve := make(chan string)
 		chanDetect := make(chan string)
+		chanResolve := make(chan string)
 
-		go func() { chanResolve <- resolveFn() }()
 		go func() { chanDetect <- detectFn() }()
+		go func() {
+			if lastDNSQueryTime.Add(DNSQueryTTL).Before(time.Now()) {
+				// DNS query is stale, resolve the address.
+				lastResolvedAddress = resolveFn()
+				lastDNSQueryTime = time.Now()
+			}
 
-		resolved := <-chanResolve
+			chanResolve <- lastResolvedAddress
+		}()
+
 		detected := <-chanDetect
+		resolved := <-chanResolve
 
 		if len(detected) == 0 {
 			if oneShot {
@@ -167,6 +196,11 @@ func ddnsLoop(
 		if resolved != detected {
 			fmt.Fprintf(os.Stderr, "%v updated %v\n", logPrefix, detected)
 			lastStatusTime = time.Now()
+
+			// We just set the DNS record, pretend it to be the response of the next DNS query.
+			// This gives time for DNS records to propagate, and avoids querying DNS servers excessively.
+			lastDNSQueryTime = time.Now()
+			lastResolvedAddress = detected
 		} else {
 			printStatusF("%v up-to-date %v\n", logPrefix, detected)
 		}

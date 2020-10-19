@@ -43,7 +43,7 @@ func Resolve(servers []string, recordType uint16, name string) string {
 
 	for _, server := range servers {
 		go func(ch chan<- string, server string) {
-			ch <- lookupWithRetry(m, server, 3)
+			ch <- lookupWithRetry(m, server, 5)
 		}(ch, server)
 	}
 
