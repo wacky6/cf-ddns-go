@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -26,12 +27,23 @@ var opts struct {
 
 	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"default" value-name:"<dns_resolver>" default-mask:"CF & Google DNS"`
 	OneShot   bool     `short:"D" long:"one-shot" description:"Detect and set DNS record once, don't enter daemon mode"`
+	Version   bool     `short:"V" long:"version" description:"Print version information and exit"`
 }
+
+// Build time constants, should be provided by linker.
+var buildTime string   // The format should be strptime "%Y-%m-%d %H:%M:%S UTC".
+var buildCommit string // Git commit SHA
+var buildTag string    // Git version tag (if available)
 
 func main() {
 	_, err := flags.Parse(&opts)
 	if err != nil {
 		os.Exit(1)
+	}
+
+	if opts.Version {
+		printVersionInfoOneLine(os.Stderr)
+		os.Exit(0)
 	}
 
 	if len(opts.DNSServer) == 1 && opts.DNSServer[0] == "default" {
@@ -48,6 +60,10 @@ func main() {
 			"2001:4860:4860::8888",
 			"2001:4860:4860::8844",
 		}
+	}
+
+	if !opts.OneShot {
+		printVersionInfoOneLine(os.Stderr)
 	}
 
 	provider, err := ddns.CreateCloudFlareProvider()
@@ -206,5 +222,27 @@ func ddnsLoop(
 		}
 
 		time.Sleep(interval)
+	}
+}
+
+func printVersionInfoOneLine(out io.Writer) {
+	var visibleTag string
+	if len(buildTag) > 0 {
+		visibleTag = buildTag
+	} else {
+		visibleTag = "tip_of_tree"
+	}
+
+	var visibleCommitSHA string
+	if len(buildCommit) > 0 {
+		visibleCommitSHA = buildCommit
+	} else {
+		visibleCommitSHA = "HEAD"
+	}
+
+	if len(buildTime) > 0 {
+		fmt.Fprintf(os.Stderr, "cf-ddns version %v %v build_at %v\n", visibleTag, visibleCommitSHA, buildTime)
+	} else {
+		fmt.Fprintf(os.Stderr, "cf-ddns version %v %v\n", visibleTag, visibleCommitSHA)
 	}
 }
