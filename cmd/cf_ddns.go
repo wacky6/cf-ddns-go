@@ -119,7 +119,17 @@ func ddnsLoop(
 ) (string, error) {
 	var oneShot bool = interval == 0*time.Second
 
-	for firstRun := true; ; firstRun = false {
+	// Status update helpers.
+	const statusUpToDateDuration = 1 * time.Hour
+	var lastStatusTime time.Time
+	printStatusF := func(formatStr string, args ...interface{}) {
+		if lastStatusTime.Add(statusUpToDateDuration).Before(time.Now()) {
+			fmt.Fprintf(os.Stderr, formatStr, args...)
+			lastStatusTime = time.Now()
+		}
+	}
+
+	for {
 		chanResolve := make(chan string)
 		chanDetect := make(chan string)
 
@@ -133,9 +143,7 @@ func ddnsLoop(
 			if oneShot {
 				return "", fmt.Errorf("failed to detect ip address")
 			}
-			if firstRun {
-				fmt.Fprintf(os.Stderr, "%v failed to detect address\n", logPrefix)
-			}
+			printStatusF("%v failed to detect address\n", logPrefix)
 			time.Sleep(interval)
 			continue
 		}
@@ -146,9 +154,7 @@ func ddnsLoop(
 				if oneShot {
 					return "", fmt.Errorf("failed to update record: %w", err)
 				}
-				if firstRun {
-					fmt.Fprintf(os.Stderr, "%v failed to update record\n", logPrefix)
-				}
+				printStatusF("%v failed to update record: %v\n", logPrefix, err.Error())
 				time.Sleep(interval)
 				continue
 			}
@@ -158,12 +164,11 @@ func ddnsLoop(
 			return detected, nil
 		}
 
-		if firstRun {
-			if resolved == detected {
-				fmt.Fprintf(os.Stderr, "%v up-to-date %v\n", logPrefix, detected)
-			} else {
-				fmt.Fprintf(os.Stderr, "%v updated %v\n", logPrefix, detected)
-			}
+		if resolved != detected {
+			fmt.Fprintf(os.Stderr, "%v updated %v\n", logPrefix, detected)
+			lastStatusTime = time.Now()
+		} else {
+			printStatusF("%v up-to-date %v\n", logPrefix, detected)
 		}
 
 		time.Sleep(interval)
