@@ -113,15 +113,6 @@ func main() {
 	}
 }
 
-// fillEmpty returns "<empty>" if the provided string is empty
-func fillEmpty(str string) string {
-	if len(str) == 0 {
-		return "<empty>"
-	}
-
-	return str
-}
-
 // getResolveFn returns a DNS resolve function. If dnsServerSpec is non-empty, it queries the provied servers.
 // Otherwise it returns a function to use operating system's DNS resolver.
 func getResolveFn(dnsServerSpec []string, addrType util.AddressType, fqdn string) func() string {

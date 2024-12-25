@@ -89,7 +89,7 @@ func DetectByInterface(addrType AddressType, ifaceNames []string) (string, error
 			ip, _, err := net.ParseCIDR(addr.String())
 
 			if err != nil {
-				panic(fmt.Sprintf("Can't parse interface address"))
+				panic("Can't parse interface address")
 			}
 
 			if GetAddressType(ip) != addrType {
