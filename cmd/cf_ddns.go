@@ -236,8 +236,9 @@ func printVersionInfoOneLine(out io.Writer) {
 	}
 
 	if len(buildTime) > 0 {
-		fmt.Fprintf(os.Stderr, "cf-ddns version %v %v build_at %v\n", visibleTag, visibleCommitSHA, buildTime)
+		fmt.Fprintf(out, "cf-ddns version %v %v build_at %v\n", visibleTag, visibleCommitSHA, buildTime)
 	} else {
-		fmt.Fprintf(os.Stderr, "cf-ddns version %v %v\n", visibleTag, visibleCommitSHA)
+		fmt.Fprintf(out, "cf-ddns version %v %v\n", visibleTag, visibleCommitSHA)
 	}
+
 }
