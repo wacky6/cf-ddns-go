@@ -25,7 +25,7 @@ var opts struct {
 	Iface6    []string      `          long:"iface6" description:"Interfaces to check for IPv6" default:"" value-name:"<interface_name>" default-mask:"all-interfaces"`
 	Interval6 time.Duration `          long:"interval6" description:"Time between consecutive IPv4 address checks" value-name:"<duration>" default:"20s"`
 
-	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"default" value-name:"<dns_resolver>" default-mask:"CF & Google DNS"`
+	DNSServer []string `short:"r" long:"resolver" description:"DNS resolvers to check for existing records" default:"default" value-name:"<dns_resolver>" default-mask:"CF & Google DNS & DNSPod"`
 	OneShot   bool     `short:"D" long:"one-shot" description:"Detect and set DNS record once, don't enter daemon mode"`
 	Version   bool     `short:"V" long:"version" description:"Print version information and exit"`
 }
@@ -59,6 +59,10 @@ func main() {
 			"8.8.4.4",
 			"2001:4860:4860::8888",
 			"2001:4860:4860::8844",
+
+			// DNSPod
+			"119.29.29.29",
+			"2402:4e00::",
 		}
 	}
 
