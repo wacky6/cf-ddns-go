@@ -2,8 +2,7 @@
 Description=Cloudflare Dynamic DNS
 
 [Service]
-Environment="CF_KEY=<YOUR_CF_ACCESS_KEY>"
-Environment="CF_EMAIL=<YOUR_CF_EMAIL>"
+Environment="CF_TOKEN=<YOUR_CF_TOKEN>"
 Environment="V6_HOST=<YOUR_IPv6_FQDN>"
 Type=simple
 ExecStart=/usr/local/bin/cf-ddns -6 $V6_HOST
