@@ -10,8 +10,8 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/miekg/dns"
 
-	"../ddns"
-	"../util"
+	"github.com/wacky6/cf-ddns-go/ddns"
+	"github.com/wacky6/cf-ddns-go/util"
 )
 
 var opts struct {

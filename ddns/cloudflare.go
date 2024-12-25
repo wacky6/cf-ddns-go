@@ -1,6 +1,8 @@
 package ddns
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,7 +17,13 @@ type CloudFlareProvider struct {
 
 // CreateCloudFlareProvider creates a DDNS Provider for CloudFlare.
 func CreateCloudFlareProvider() (Provider, error) {
-	api, err := cloudflare.New(os.Getenv("CF_KEY"), os.Getenv("CF_EMAIL"))
+	const tokenEnvName = "CF_TOKEN"
+	token := os.Getenv(tokenEnvName)
+	if len(token) == 0 {
+		return nil, errors.New("CF_TOKEN env variable must be provided")
+	}
+
+	api, err := cloudflare.NewWithAPIToken(token)
 
 	if err != nil {
 		return nil, fmt.Errorf("can't create cloudflare api: %w", err)
@@ -26,7 +34,7 @@ func CreateCloudFlareProvider() (Provider, error) {
 
 // VerifyConfig checks the provided credential can access zone information.
 func (cf CloudFlareProvider) VerifyConfig() error {
-	_, err := cf.api.ListZones()
+	_, err := cf.api.ListZones(context.Background())
 	if err != nil {
 		return fmt.Errorf("can't verify credentials: %w", err)
 	}
@@ -36,7 +44,8 @@ func (cf CloudFlareProvider) VerifyConfig() error {
 
 // SetRecord sets the `record` for fully qualified domain name `fqdn`
 func (cf CloudFlareProvider) SetRecord(fqdn string, record Record) error {
-	zones, err := cf.api.ListZones()
+	ctx := context.Background()
+	zones, err := cf.api.ListZones(ctx)
 	if err != nil {
 		return fmt.Errorf("can't list zones: %w", err)
 	}
@@ -53,7 +62,15 @@ func (cf CloudFlareProvider) SetRecord(fqdn string, record Record) error {
 		return fmt.Errorf("fqdn %q is not managed by account", fqdn)
 	}
 
-	records, err := cf.api.DNSRecords(zoneID, cloudflare.DNSRecord{Name: fqdn, Type: record.Type})
+	zoneIdentifier := cloudflare.ZoneIdentifier(zoneID)
+
+	records, _, err := cf.api.ListDNSRecords(
+		ctx,
+		zoneIdentifier, cloudflare.ListDNSRecordsParams{
+			Name: fqdn,
+			Type: record.Type,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("can't retrieve dns records: %w", err)
 	}
@@ -74,10 +91,26 @@ func (cf CloudFlareProvider) SetRecord(fqdn string, record Record) error {
 
 	if len(recordID) > 0 {
 		// Record exists, update it.
-		err = cf.api.UpdateDNSRecord(zoneID, recordID, cloudflare.DNSRecord{Content: record.Content})
+		_, err = cf.api.UpdateDNSRecord(
+			ctx,
+			zoneIdentifier,
+			cloudflare.UpdateDNSRecordParams{
+				ID:      recordID,
+				Content: record.Content,
+			},
+		)
 	} else {
 		// Record doesn't exist, create one.
-		_, err = cf.api.CreateDNSRecord(zoneID, cloudflare.DNSRecord{Type: record.Type, Content: record.Content, TTL: 120, Proxied: false, Name: fqdn})
+		_, err = cf.api.CreateDNSRecord(
+			ctx,
+			zoneIdentifier,
+			cloudflare.CreateDNSRecordParams{
+				Type:    record.Type,
+				Content: record.Content,
+				TTL:     120,
+				Proxied: cloudflare.BoolPtr(false),
+				Name:    fqdn,
+			})
 	}
 
 	return err

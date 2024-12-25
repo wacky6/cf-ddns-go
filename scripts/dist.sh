@@ -4,18 +4,11 @@ set -e
 
 OS_ARCHS=(
     linux/amd64
-    linux/arm
+    linux/arm64
     darwin/amd64
+    darwin/arm64
     windows/amd64
 )
-
-if command -v upx &> /dev/null
-then
-    echo "* Found UPX. Will compress binaries."
-    HAS_UPX=1
-else
-    HAS_UPX=0
-fi
 
 if command -v git &> /dev/null
 then
@@ -32,6 +25,9 @@ BUILD_INFO=" \
     -X 'main.buildTag=${BUILD_TAG}' \
     -X 'main.buildCommit=${BUILD_COMMIT}' \
 "
+
+echo "Fetching modules."
+go get ./...
 
 echo "* Build time:   $BUILD_TIME"
 echo "* Build commit: $BUILD_COMMIT"
@@ -52,11 +48,7 @@ for OS_ARCH in "${OS_ARCHS[@]}" ; do
         go build \
         -ldflags="-s -w $BUILD_INFO" \
         -o ./bin/${BINARY_FILENAME} \
-        ./cmd
-
-    if [[ $HAS_UPX -eq 1 ]] ; then
-        upx -qqq ./bin/${BINARY_FILENAME}
-    fi
+        ./cmd/cf_ddns.go
 
     FILE_SIZE=$( du -h ./bin/${BINARY_FILENAME} | cut -f1 )
     echo "*** Built ${OS} ${ARCH}, size: ${FILE_SIZE}"
