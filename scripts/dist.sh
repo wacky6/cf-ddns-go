@@ -12,8 +12,8 @@ OS_ARCHS=(
 
 if command -v git &> /dev/null
 then
-    BUILD_COMMIT=$( git rev-parse --short HEAD )
-    BUILD_TAG=$( git describe --exact-match --tags HEAD 2>/dev/null|| echo "" )
+    BUILD_COMMIT=$( git -c safe.directory="$(pwd)" rev-parse --short HEAD 2>/dev/null || echo "<Unknown>" )
+    BUILD_TAG=$( git -c safe.directory="$(pwd)" describe --exact-match --tags HEAD 2>/dev/null || echo "" )
 else
     BUILD_COMMIT="<Unknown>"
     BUILD_TAG=""
@@ -44,7 +44,7 @@ for OS_ARCH in "${OS_ARCHS[@]}" ; do
 
     echo "*** Building ${OS} ${ARCH}"
 
-    GOOS=$OS GOARCH=$ARCH \
+    CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
         go build \
         -ldflags="-s -w $BUILD_INFO" \
         -o ./bin/${BINARY_FILENAME} \

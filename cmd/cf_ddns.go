@@ -38,6 +38,9 @@ var buildTag string    // Git version tag (if available)
 func main() {
 	_, err := flags.Parse(&opts)
 	if err != nil {
+		if flags.WroteHelp(err) {
+			os.Exit(0)
+		}
 		os.Exit(1)
 	}
 
